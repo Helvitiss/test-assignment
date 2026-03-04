@@ -24,7 +24,7 @@ class DepartmentRepository:
             DepartmentModel.name == name,
         )
         if exclude_id is not None:
-            stmt = stmt.where(DepartmentModel.id == exclude_id)
+            stmt = stmt.where(DepartmentModel.id != exclude_id)
 
 
         if parent_id is None:
