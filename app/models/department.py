@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func, Index, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base
@@ -8,7 +8,17 @@ from app.core.db import Base
 
 class Department(Base):
     __tablename__ = "departments"
-    __table_args__ = (UniqueConstraint("parent_id", "name", name="uq_department_parent_name"),)
+    __table_args__ = (
+        UniqueConstraint("parent_id",
+                         "name",
+                         name="uq_department_parent_name"),
+        Index(
+            "uq_department_root_name",
+            "name",
+            unique=True,
+            postgresql_where=text("parent_id IS NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
