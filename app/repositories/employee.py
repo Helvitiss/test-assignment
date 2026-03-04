@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import EmployeeModel
@@ -46,8 +46,10 @@ class EmployeeRepository:
         return employee
 
     async def reassign_department(self, *, from_department_id: int, to_department_id: int) -> None:
-
-        employees = await self.list_for_department(from_department_id, sorting=False)
-        for employee in employees:
-            employee.department_id = to_department_id
+        stmt = (
+            update(EmployeeModel)
+            .where(EmployeeModel.department_id == from_department_id)
+            .values(department_id=to_department_id)
+        )
+        await self.db.execute(stmt)
         await self.db.flush()
