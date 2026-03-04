@@ -60,6 +60,12 @@ class DepartmentService:
 
 
     async def _build_node(self, department: DepartmentModel, depth: int, include_employees: bool) -> DepartmentDetails:
+        """
+        Формирует узел дерева подразделений.
+
+        Возвращает DepartmentDetails для указанного подразделения, включая сотрудников
+        (опционально) и рекурсивно добавляя дочерние подразделения до глубины depth.
+        """
         employee_models = await self.employee_repo.list_for_department(
             department_id=department.id) if include_employees else []
         employees = [EmployeeResponse.model_validate(employee) for employee in employee_models]
@@ -219,6 +225,9 @@ class DepartmentService:
 
 
     async def _collect_descendant_ids(self, department_id: int) -> set[int]:
+        """
+        Возвращает множество id всех дочерних подразделений для указанного подразделения (без самого подразделения).
+        """
         collected: set[int] = set()
         queue: deque[int] = deque([department_id])
 
