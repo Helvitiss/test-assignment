@@ -2,8 +2,6 @@ from app.core.db import AsyncSessionLocal
 
 
 
-
-
-def get_async_session():
-    with AsyncSessionLocal as db:
+async def get_async_db_session():
+    async with AsyncSessionLocal() as db:
         yield db
