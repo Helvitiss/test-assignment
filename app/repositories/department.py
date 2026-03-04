@@ -19,11 +19,13 @@ class DepartmentRepository:
         result = await self.db.scalars(stmt)
         return result.all()
 
-    async def is_name_taken_in_parent(self, *, parent_id: int | None, name: str) -> bool:
+    async def is_name_taken_in_parent(self, *, parent_id: int | None, name: str, exclude_id: int | None = None) -> bool:
         stmt = select(DepartmentModel.id).where(
             DepartmentModel.name == name,
-            DepartmentModel.id != exclude_id
         )
+        if exclude_id is not None:
+            stmt = stmt.where(DepartmentModel.id == exclude_id)
+
 
         if parent_id is None:
             stmt = stmt.where(DepartmentModel.parent_id.is_(None))

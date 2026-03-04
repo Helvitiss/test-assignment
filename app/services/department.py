@@ -128,6 +128,7 @@ class DepartmentService:
             if await self.department_repo.is_name_taken_in_parent(
                     parent_id=new_parent,
                     name=new_name,
+                    exclude_id=department.id
             ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
