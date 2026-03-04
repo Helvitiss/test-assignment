@@ -1,14 +1,14 @@
-from fastapi import HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 from collections import deque
 
+from fastapi import HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models import DepartmentModel, EmployeeModel
 from app.repositories.department import DepartmentRepository
 from app.repositories.employee import EmployeeRepository
-from app.schemas.department import DepartmentCreate, DepartmentResponse, DepartmentUpdate,DepartmentDetails
-from app.models import DepartmentModel, EmployeeModel
+from app.schemas.department import DepartmentCreate, DepartmentDetails, DepartmentResponse, DepartmentUpdate
 from app.schemas.employee import EmployeeCreate, EmployeeResponse
 from app.schemas.enums import DeleteMode
-
 
 
 class DepartmentService:
@@ -20,6 +20,7 @@ class DepartmentService:
     async def create_department(self, payload: DepartmentCreate) -> DepartmentModel:
         if payload.parent_id is not None and await self.department_repo.get(payload.parent_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent department not found")
+
         if await self.department_repo.is_name_taken_in_parent(parent_id=payload.parent_id, name=payload.name):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Department name must be unique in parent")
 
@@ -40,7 +41,7 @@ class DepartmentService:
                 department_id=department_id,
                 full_name=payload.full_name,
                 position=payload.position,
-                hired_at=payload.hired_at
+                hired_at=payload.hired_at,
             )
             await self.db.commit()
             return employee
@@ -49,55 +50,52 @@ class DepartmentService:
             raise
 
     async def get_tree(self, department_id: int, depth: int, include_employees: bool) -> DepartmentDetails:
-        if depth < 1 or depth > 5:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="depth should be between 1 and 5")
+        root = await self.department_repo.get(department_id)
+        if root is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
 
+        departments = [root]
+        current_parent_ids = {root.id}
+
+        # depth=1 -> include direct children, depth=2 -> grandchildren, etc.
+        for _ in range(depth):
+            children = await self.department_repo.get_children_for_parents(current_parent_ids)
+            if not children:
+                break
+
+            departments.extend(children)
+            current_parent_ids = {department.id for department in children}
+
+        employees_by_department = {department.id: [] for department in departments}
+        if include_employees:
+            employees = await self.employee_repo.list_for_departments({department.id for department in departments})
+            for employee in employees:
+                employees_by_department[employee.department_id].append(EmployeeResponse.model_validate(employee))
+
+        details_by_department_id = {
+            department.id: DepartmentDetails(
+                department=DepartmentResponse.model_validate(department),
+                employees=employees_by_department[department.id] if include_employees else None,
+                children=[],
+            )
+            for department in departments
+        }
+
+        for department in departments:
+            if department.parent_id is None:
+                continue
+            parent = details_by_department_id.get(department.parent_id)
+            if parent is not None:
+                parent.children.append(details_by_department_id[department.id])
+
+        return details_by_department_id[root.id]
+
+    async def update_department(self, department_id: int, payload: DepartmentUpdate) -> DepartmentModel:
         department = await self.department_repo.get(department_id)
         if department is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
 
-        return await self._build_node(department, depth, include_employees)
-
-
-    async def _build_node(self, department: DepartmentModel, depth: int, include_employees: bool) -> DepartmentDetails:
-        """
-        Формирует узел дерева подразделений.
-
-        Возвращает DepartmentDetails для указанного подразделения, включая сотрудников
-        (опционально) и рекурсивно добавляя дочерние подразделения до глубины depth.
-        """
-        employee_models = await self.employee_repo.list_for_department(
-            department_id=department.id) if include_employees else []
-        employees = [EmployeeResponse.model_validate(employee) for employee in employee_models]
-        children_payload: list[DepartmentDetails] = []
-        if depth > 0:
-            children = await self.department_repo.get_children(department_id=department.id)
-            for child in children:
-                children_payload.append(await self._build_node(child, depth - 1, include_employees))
-
-        return DepartmentDetails(
-            department=DepartmentResponse.model_validate(department),
-            employees=employees,
-            children=children_payload
-        )
-
-
-
-    async def update_department(
-            self,
-            department_id: int,
-            payload: DepartmentUpdate
-    ) -> DepartmentModel:
-
-        department = await self.department_repo.get(department_id)
-        if department is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Department not found"
-            )
-
         update_data = payload.model_dump(exclude_unset=True)
-
         if not update_data:
             return department
 
@@ -105,68 +103,50 @@ class DepartmentService:
         new_parent = update_data.get("parent_id", department.parent_id)
 
         if "parent_id" in update_data:
-
             if new_parent == department.id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Department cannot be parent of itself"
-                )
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Department cannot be parent of itself")
 
             if new_parent is not None:
-
                 parent = await self.department_repo.get(new_parent)
                 if parent is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_404_NOT_FOUND,
-                        detail="Department not found"
-                    )
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
 
-                if await self._is_descendant(
-                        candidate_parent_id=new_parent,
-                        source_department_id=department.id
-                ):
+                if await self._is_descendant(candidate_parent_id=new_parent, source_department_id=department.id):
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
-                        detail="Cannot move department into its subtree"
+                        detail="Cannot move department into its subtree",
                     )
 
         if "name" in update_data or "parent_id" in update_data:
             if await self.department_repo.is_name_taken_in_parent(
-                    parent_id=new_parent,
-                    name=new_name,
-                    exclude_id=department.id
+                parent_id=new_parent,
+                name=new_name,
+                exclude_id=department.id,
             ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
-                    detail="Department name must be unique in parent"
+                    detail="Department name must be unique in parent",
                 )
 
         try:
             department.name = new_name
             department.parent_id = new_parent
-
             await self.db.commit()
             await self.db.refresh(department)
-
             return department
-
         except Exception:
             await self.db.rollback()
             raise
 
     async def delete_department(
-            self,
-            department_id: int,
-            mode: DeleteMode,
-            reassign_to_department_id: int | None
+        self,
+        department_id: int,
+        mode: DeleteMode,
+        reassign_to_department_id: int | None,
     ) -> None:
-
         department = await self.department_repo.get(department_id)
         if department is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Department not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
 
         if mode is DeleteMode.cascade:
             try:
@@ -178,51 +158,33 @@ class DepartmentService:
                 raise
 
         if reassign_to_department_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="reassign_to_department_id is required"
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="reassign_to_department_id is required")
 
         if reassign_to_department_id == department_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot reassign to deleted department"
-            )
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot reassign to deleted department")
 
         target = await self.department_repo.get(reassign_to_department_id)
         if target is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Department not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department not found")
 
         descendants = await self._collect_descendant_ids(department_id)
         if reassign_to_department_id in descendants:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Cannot reassign into deleted subtree"
-            )
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cannot reassign into deleted subtree")
 
         try:
-
             await self.employee_repo.reassign_department(
                 from_department_ids=descendants | {department_id},
-                to_department_id=target.id
+                to_department_id=target.id,
             )
-
             await self.department_repo.new_parent_for_children(
                 from_department_id=department_id,
-                new_parent_id=department.parent_id
+                new_parent_id=department.parent_id,
             )
-
             await self.department_repo.delete(department)
-
             await self.db.commit()
-
         except Exception:
             await self.db.rollback()
             raise
-
 
     async def _collect_descendant_ids(self, department_id: int) -> set[int]:
         """
@@ -233,13 +195,11 @@ class DepartmentService:
 
         while queue:
             current = queue.popleft()
-
             children = await self.department_repo.get_children(current)
 
             for child in children:
                 if child.id in collected:
                     continue
-
                 collected.add(child.id)
                 queue.append(child.id)
 

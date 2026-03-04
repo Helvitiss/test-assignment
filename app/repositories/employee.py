@@ -10,20 +10,18 @@ class EmployeeRepository:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def list_for_department(self, department_id: int, sorting: bool = True) -> list[EmployeeModel]:
-        """
-        Возвращает сотрудников подразделения.
-
-        По умолчанию сортирует по created_at (ASC), затем по full_name (ASC).
-        """
+    async def list_for_departments(self, department_ids: set[int]) -> list[EmployeeModel]:
+        if not department_ids:
+            return []
 
         stmt = (
             select(EmployeeModel)
-            .where(EmployeeModel.department_id == department_id)
-
+            .where(EmployeeModel.department_id.in_(department_ids))
+            .order_by(EmployeeModel.department_id.asc(),
+                      EmployeeModel.created_at.asc(),
+                      EmployeeModel.full_name.asc()
+                      )
         )
-        if sorting:
-            stmt = stmt.order_by(EmployeeModel.created_at.asc(), EmployeeModel.full_name.asc())
 
         result = await self.db.scalars(stmt)
         return result.all()

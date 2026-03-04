@@ -19,6 +19,18 @@ class DepartmentRepository:
         result = await self.db.scalars(stmt)
         return result.all()
 
+    async def get_children_for_parents(self, parent_ids: set[int]) -> list[DepartmentModel]:
+        if not parent_ids:
+            return []
+
+        stmt = (
+            select(DepartmentModel)
+            .where(DepartmentModel.parent_id.in_(parent_ids))
+            .order_by(DepartmentModel.parent_id.asc(), DepartmentModel.id.asc())
+        )
+        result = await self.db.scalars(stmt)
+        return result.all()
+
     async def is_name_taken_in_parent(self, *, parent_id: int | None, name: str, exclude_id: int | None = None) -> bool:
         stmt = select(DepartmentModel.id).where(
             DepartmentModel.name == name,
