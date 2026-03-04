@@ -198,8 +198,9 @@ class DepartmentService:
             )
 
         try:
+
             await self.employee_repo.reassign_department(
-                from_department_id=department_id,
+                from_department_ids=descendants | {department_id},
                 to_department_id=target.id
             )
 

@@ -45,11 +45,10 @@ class EmployeeRepository:
         await self.db.flush()
         return employee
 
-    async def reassign_department(self, *, from_department_id: int, to_department_id: int) -> None:
+    async def reassign_department(self, *, from_department_ids: set[int], to_department_id: int) -> None:
         stmt = (
             update(EmployeeModel)
-            .where(EmployeeModel.department_id == from_department_id)
+            .where(EmployeeModel.department_id.in_(from_department_ids))
             .values(department_id=to_department_id)
         )
         await self.db.execute(stmt)
-        await self.db.flush()
