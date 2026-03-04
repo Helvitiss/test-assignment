@@ -41,12 +41,6 @@ class DepartmentRepository:
         await self.db.flush()
         return department
 
-    # async def update(self, department: DepartmentModel, *, name: str, parent_id: int | None) -> DepartmentModel:
-    #     department.name = name
-    #     department.parent_id = parent_id
-    #     await self.db.flush()
-    #     return department
-
     async def new_parent_for_children(self, *, from_department_id: int, new_parent_id: int | None) -> None:
         children = await self.get_children(from_department_id)
         for child in children:

@@ -18,7 +18,7 @@ async def create_department(
     return DepartmentResponse.model_validate(department)
 
 
-@router.post('/{department_id}/employees', response_model=EmployeeResponse, status_code=201)
+@router.post('/{department_id}/employees/', response_model=EmployeeResponse, status_code=201)
 async def create_employee(
         department_id: int,
         payload: EmployeeCreate,
